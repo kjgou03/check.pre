@@ -1,0 +1,6 @@
+staff_id,staff_name,ticker,company_name,registered_at
+S001,담당자A,MO,Altria Group,2026-10-01
+S001,담당자A,AAPL,Apple Inc,2026-10-01
+S002,담당자B,,,2026-10-01
+S003,담당자C,NVDA,NVIDIA Corp,2026-10-01
+S003,담당자C,JNJ,Johnson & Johnson,2026-10-01
