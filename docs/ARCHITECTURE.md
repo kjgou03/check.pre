@@ -1,28 +1,30 @@
 # 구조 설명 — 코드 읽는 법
 
-전체 약 1,250줄. 아래 순서대로 읽으면 하루 안에 전부 이해할 수 있게 짰습니다.
+전체 약 1,500줄. 아래 순서대로 읽으면 하루 안에 전부 이해할 수 있게 짰습니다.
+번호 ①~⑥은 **기획서 v1의 ③ Workflow 그림 번호와 같습니다.**
 
 ## 1. 큰 그림
 
 ```
-                       ┌──────────── LLM 사용 ────────────┐
- "Altria에 150억,      │                                  │
-  담당자 S001"  ──▶ ① intake ──▶ Proposal                 │
-                                   │                      │
-            ┌──────────────────────┼──────────────────┐   │
-            ▼                      ▼                  ▼   │
-     ③ screening             ④ limits           ⑤ conflicts   ← 전부 순수 코드 (LLM 금지)
-     exclusion / sanctions   single / sector    check
-            │                      │                  │
-            └────────── CheckResult × 5 ──────────────┘
-                                   │
-                                   ▼
-                              ⑥ report.build ──▶ Report ──▶ to_markdown / Streamlit
-                       (overall·승인·질문 = 코드, summary = LLM → 코드가 검증)
+ "Altria에 150억,        ┌─────── 오케스트레이터 (orchestrator.py) ───────┐
+  담당자 S001" ──▶ ① intake(LLM) ──▶ Proposal  ── 필수값 누락? → 질문하고 멈춤
+                                         │
+          ┌──────────────┬───────────────┼───────────────┬───────────────┐   ← 병렬 실행
+          ▼              ▼               ▼               ▼               ▼
+     ② rules.check  ③ screening     ④ limits        ④ limits       ⑤ conflicts
+        (법령)       배제·제재       단일종목        섹터            이해상충
+          └──────────────┴──────── CheckResult × 6 ──────┴───────────────┘
+                                         │      (점검이 오류로 죽으면 → 🟡 "확인 불가" 로 표시)
+                                         ▼
+                ⑥ report.build ── overall·승인·질문 = 코드 / summary = LLM → 코드가 검증
+                                         │
+                                         ▼
+                      Report ──▶ 화면·Markdown  +  audit.log (감사 로그, SQLite)
 ```
 
 - **모드 A** (`orchestrator.py`): 위 흐름을 투자안 1건에 대해 한 번.
-- **모드 B** (`batch.py`): 보유 종목 하나하나를 "금액 0원짜리 투자안"으로 보고 ③만 반복. 새 로직 없음.
+- **모드 B** (`batch.py`): 보유 종목 하나하나를 "금액 0원짜리 투자안"으로 보고 ③·④(단일종목)를 반복. 새 로직 없음.
+- **모드 B-2** (`impact.py`): 새 목록(CSV) 또는 공지 문서(LLM이 기업명 추출)를 받아, 기존 목록에 없던 기업만 보유내역과 대조 → "새로 RED가 된 종목·금액".
 
 ## 2. 읽는 순서
 
@@ -38,7 +40,8 @@
 | 8 | `precheck/report.py` | `decide_overall` → `validate_summary` → `make_summary` → `build` 순서로. **환각 차단 로직**이 여기 있습니다. |
 | 9 | `precheck/llm.py` | LLM 호출 단일 창구. 실패하면 `None` → 호출한 쪽이 폴백. |
 | 10 | `precheck/intake.py` | 자유 입력 → `Proposal`. LLM 추출과 정규식 폴백. |
-| 11 | `precheck/orchestrator.py`, `batch.py`, `app.py` | 위 부품을 조립만 합니다. |
+| 11 | `precheck/orchestrator.py`, `batch.py`, `impact.py`, `app.py` | 위 부품을 조립만 합니다. `orchestrator._safe`(오류를 숨기지 않는 법)와 `impact.run`(목록 차이 계산)만 눈여겨보면 됩니다. |
+| 12 | `precheck/audit.py` | 감사 로그. 점검마다 시각·입력·결과·데이터 버전을 SQLite 한 줄로. |
 
 ## 3. 설계 포인트 (발표 때 질문 받을 만한 것)
 
@@ -73,10 +76,26 @@
 | `rules.py` | Step 4 | Step 2에서 먼저 작성 | screening이 조문 근거를 붙이려면 필요 |
 | 요약 검증 | 존재하는 조문인지 | + 이번 점검 근거에 쓰인 조문인지 | 실존하지만 무관한 조항 인용도 차단 |
 | 데이터 출처 | 각 CSV의 날짜 컬럼 | `manifest.json` 추가 | 샘플/실데이터 구분을 보고서에 표시 |
-| `law` 점검 | (선택) | 미구현 | `kic_act_sample.json`이 비어 있음. 채우면 `orchestrator.run_checks`에 추가 |
+| `law` 점검 | (선택) | 구현 — 조문이 비어 있으면 ⚪ "확인 불가" | 기획서 6개 항목에 맞춤. 침묵 실패 금지 |
+| 점검 오류 | (없음) | 🟡 "확인 불가 — 사람 확인 필요" | ⚪로 두면 종합이 🟢가 될 수 있어서 |
 | CLI `--staff` | DoD 예시엔 없음 | 필수 | 02번 명세상 담당자는 필수값 → 없으면 질문하고 중단 |
 
-## 5. 확장할 때 손댈 곳
+## 5. 기획서 v1과의 관계 — 지금 MVP(첫 버전)와 본선 목표
+
+| 기획서 v1 | 지금 MVP | 본선에서 할 일 |
+|---|---|---|
+| 오케스트레이터 + 서브에이전트 ①~⑥, ②~⑤ 병렬 | 같은 구조, Python 함수 + 스레드 병렬 | LangGraph 그래프로 이관 |
+| LLM 사용처: ①입력 해석 ②규정 해석 ⑥요약 | ①과 ⑥만. ②는 카테고리 검색(코드) | ② RAG(ChromaDB) + LLM 해석 추가 |
+| 6개 점검 항목 (법령·지침·한도·배제·제재·이해상충) | 법령·배제·제재·한도(단일·섹터)·이해상충. 내부 지침은 각 점검의 근거 조문(IG-x-x)으로 | 위탁기관 지침을 조문 DB에 추가 |
+| 모드 B: 보유 전체에 ③④ | ✅ | 실데이터(13F) |
+| 모드 B-2: 문서 투입 → 영향 종목 | ✅ CSV / 문서(LLM, 키 필요) | 실제 GCEL 연도별 목록으로 시연 |
+| 근거 검증: 재생성 2회 → 실패 시 강등 | 재생성 2회 → 실패 시 **코드 생성 요약으로 대체 + 대체 사실 표시** | — |
+| 외부 API 3회 재시도 → "확인 불가" | LLM: SDK 재시도 3회 → 폴백 / 점검 오류 → "확인 불가" | OpenSanctions·GLEIF API 연결 시 동일 원칙 |
+| 감사 로그 / 장기 메모리(SQLite) | ✅ `output/audit.db` (점검 이력) | 담당자 보유내역도 DB로 |
+| 기업 식별 LEI(GLEIF) | 보유내역(13F 이름·티커) 매칭 | GLEIF API |
+| 제재 OpenSanctions(OFAC·UN·EU) | OFAC SDN CSV 발췌 | OpenSanctions |
+
+## 6. 확장할 때 손댈 곳
 - **실데이터 교체**: `data/` 파일만 바꾸고 `manifest.json` 갱신. 코드 수정 불필요.
 - **섹터 한도 판정**: `limits.sector()`의 TODO — 벤치마크 섹터 비중 CSV를 추가해 ±5%p 비교.
 - **새 점검 항목**: `CheckResult`를 돌려주는 함수를 만들고 `orchestrator.run_checks`에 한 줄 추가. `check_id`는 `schemas.py`의 Literal에도 추가.
