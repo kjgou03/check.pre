@@ -110,6 +110,18 @@ def match_score(a: str, b: str) -> float:
     return (fuzz.token_set_ratio(a, b) + fuzz.token_sort_ratio(a, b)) / 2
 
 
+def names_for(company_name: str, ticker: str | None = None) -> list[str]:
+    """비교에 쓸 정규화 이름들: 입력한 이름 + (티커가 보유내역에 있으면) 13F 발행사명.
+
+    사용자가 'Philip Morris' 라고만 써도, 티커(PM)로 찾은 'PHILIP MORRIS INTL INC' 로도 비교할 수 있게.
+    """
+    names = [company_name]
+    if ticker:
+        h = load_holdings()
+        names += h.loc[h["ticker"] == ticker, "issuer_name"].tolist()
+    return list(dict.fromkeys(normalize_name(n) for n in names if n))  # 순서 유지 + 중복 제거
+
+
 def find_matches(name_norm: str, df: pd.DataFrame, min_score: float) -> list[tuple[float, pd.Series]]:
     """df['norm'] 중 name_norm 과 match_score ≥ min_score 인 행들을 (점수, 행) 으로 반환 (점수 내림차순)."""
     if not name_norm or df.empty:
