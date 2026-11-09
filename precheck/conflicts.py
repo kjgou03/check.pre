@@ -33,7 +33,7 @@ def check(p: Proposal) -> CheckResult:
     if hits:
         return CheckResult(
             check_id="conflict", signal="RED",
-            headline=f"담당자 {staff_name}({p.staff_id})가 해당 종목 보유 — 이해상충",
+            headline=f"{staff_name}({p.staff_id})가 해당 종목 보유 — 이해상충",
             evidence=[Evidence(source_type="db", source_id="staff_holdings",
                                text=f"{p.staff_id} {staff_name} 보유: {r['ticker']} {r['company_name']} "
                                     f"(등록일 {r['registered_at']})") for r in hits]
