@@ -20,6 +20,8 @@ EXCLUSION_CSV = DATA_DIR / "exclusion_list.csv"
 SANCTIONS_CSV = DATA_DIR / "sanctions.csv"
 STAFF_CSV = DATA_DIR / "staff_holdings.csv"
 MANIFEST_JSON = DATA_DIR / "manifest.json"  # 각 데이터 파일의 출처·기준일·샘플 여부
+SAMPLES_DIR = DATA_DIR / "samples"          # 모드 B-2 시연용 '새 목록' 예시
+AUDIT_DB_NAME = "audit.db"                  # 감사 로그(SQLite). OUTPUT_DIR 아래에 생김
 RULE_FILES = [RULES_DIR / "internal_guideline.json", RULES_DIR / "kic_act_sample.json"]
 
 # ── LLM (intake.py, report.py 에서만 사용) ─────────────

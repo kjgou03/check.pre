@@ -2,7 +2,7 @@
 import pytest
 from pydantic import ValidationError
 
-from precheck import conflicts, limits, llm, report, screening
+from precheck import llm, orchestrator, report
 from precheck.schemas import CheckResult, Evidence, Proposal
 
 
@@ -14,8 +14,7 @@ def _c(signal, check_id="exclusion"):
 def _altria_checks():
     p = Proposal(company_name="Altria Group", ticker="MO", sector="Consumer Staples",
                  amount_krw=15e9, amount_usd=15e9 / 1400, staff_id="S002")
-    checks = [screening.exclusion(p), screening.sanctions(p), limits.single(p), limits.sector(p), conflicts.check(p)]
-    return p, checks
+    return p, orchestrator.run_checks(p)
 
 
 def test_red_without_evidence_is_rejected():
@@ -52,7 +51,8 @@ def test_hallucinated_llm_summary_falls_back_to_template(monkeypatch):
     p, checks = _altria_checks()
     r = report.build(p, checks)
     assert "IG-9-9" not in r.summary
-    assert r.summary.startswith("점검 5개 항목 중")
+    assert r.summary.startswith("점검 6개 항목 중")
+    assert report.VERIFY_FAIL_NOTE in r.summary  # 대체됐다는 사실을 숨기지 않음
     assert len(calls) == 3  # 최초 1회 + 재생성 2회
 
 
@@ -74,3 +74,9 @@ def test_markdown_has_disclaimer():
     md = report.to_markdown(report.build(p, checks))
     assert "최종 판단" in md
     assert "SAMPLE" in md  # 샘플 데이터임이 보고서에 드러나야 함
+    assert "위반 가능" in md  # 기획서 표현(적합/확인 필요/위반 가능/확인 불가)
+
+
+def test_no_key_template_has_no_failure_note():
+    p, checks = _altria_checks()
+    assert report.VERIFY_FAIL_NOTE not in report.build(p, checks).summary

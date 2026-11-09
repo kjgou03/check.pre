@@ -25,7 +25,8 @@ def _get_client():
     global _client
     if _client is None:
         import anthropic
-        _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, timeout=60)
+        # max_retries=3: 일시 오류(429·5xx·네트워크)는 SDK 가 지수 백오프로 3번 재시도 → 그래도 실패하면 폴백
+        _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, timeout=60, max_retries=3)
     return _client
 
 

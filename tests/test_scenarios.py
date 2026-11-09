@@ -23,6 +23,8 @@ def test_scenario1_altria_red():
     assert _check(r, "limit_single").signal in ("GREEN", "YELLOW")
     assert _check(r, "limit_sector").signal == "UNKNOWN"
     assert _check(r, "conflict").signal == "GREEN"
+    assert _check(r, "law").signal == "UNKNOWN"  # 기획서 6개 항목: 법령 포함
+    assert len(r.checks) == 6
     assert "책임투자위원회" in " ".join(r.required_approvals)
     assert "[IG-5-1]" in r.summary and report.validate_summary(r.summary, r.checks, r.proposal) == []
 
@@ -51,7 +53,7 @@ def test_green_has_evidence():
     r = orchestrator.run(company="Microsoft Corp", amount_krw=5e9, staff_id="S002")
     assert r.overall == "GREEN"
     for c in r.checks:
-        if c.check_id == "limit_sector":
+        if c.check_id in ("limit_sector", "law"):  # 벤치마크 데이터·법령 조문이 없어 '확인 불가'로 드러냄
             assert c.signal == "UNKNOWN"
         else:
             assert c.signal == "GREEN"

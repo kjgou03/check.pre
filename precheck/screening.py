@@ -1,7 +1,7 @@
 """③ 배제·제재 대조 (LLM 없음 — 순수 코드).
 
 판정 규칙 (02번 명세):
-  목록(NBIM/Urgewald) 이름 점수 ≥ 90  → RED     + 목록 행 + IG-5-1, IG-5-2
+  목록(NBIM·Urgewald 등) 이름 ≥ 90   → RED     + 목록 행 + IG-5-1, IG-5-2
   목록 이름 점수 80~89                 → YELLOW  "유사 기업 가능, 확인 필요"
   테마 키워드만 걸림                    → YELLOW  "키워드 기반 후보"
   아무것도 없음                         → GREEN   (무엇과 대조했는지를 근거로 남김)
@@ -12,8 +12,7 @@ import config
 from precheck import data, rules
 from precheck.schemas import CheckResult, Evidence, Proposal
 
-LIST_SOURCES = ("NBIM", "Urgewald_GCEL_2025")
-KEYWORD_SOURCE = "KIC_theme_keyword"
+KEYWORD_SOURCE = "KIC_theme_keyword"  # 이 source 의 행은 기업이 아니라 테마 키워드
 
 
 def _as_of(filename: str) -> str:
@@ -31,14 +30,16 @@ def _best_matches(p: Proposal, df, min_score: float) -> list[tuple[float, object
 
 
 # ── 배제목록 ─────────────────────────────────────────
-def match_exclusions(p: Proposal) -> list[dict]:
-    """배제목록 매칭 결과를 구조화해서 반환. exclusion()과 batch.py가 같이 쓴다.
+def match_exclusions(p: Proposal, ex=None) -> list[dict]:
+    """배제목록 매칭 결과를 구조화해서 반환. exclusion()·batch.py·impact.py 가 같이 쓴다.
 
+    ex 를 주면 그 목록으로 대조 (모드 B-2: 새 목록만 넣어 보기). 기본은 data/exclusion_list.csv.
     각 원소: {kind: "list"|"keyword", score, company_name, theme, source, source_detail, effective_date}
     """
-    ex = data.load_exclusions()
+    ex = data.load_exclusions() if ex is None else ex
     out = []
-    for score, r in _best_matches(p, ex[ex["source"].isin(LIST_SOURCES)], config.FUZZY_YELLOW):
+    # 키워드 행을 뺀 나머지는 전부 '실제 목록' (NBIM, Urgewald, 새로 들어온 목록 …)
+    for score, r in _best_matches(p, ex[ex["source"] != KEYWORD_SOURCE], config.FUZZY_YELLOW):
         out.append({"kind": "list", "score": score, **r.drop("norm").to_dict()})
 
     # 키워드: 정규화된 기업명 + 섹터에 단어 단위로 등장하는지
@@ -94,7 +95,8 @@ def exclusion(p: Proposal) -> CheckResult:
         )
 
     ex = data.load_exclusions()
-    counts = ", ".join(f"{s} {int((ex['source'] == s).sum())}건" for s in LIST_SOURCES)
+    sources = [s for s in dict.fromkeys(ex["source"]) if s != KEYWORD_SOURCE]
+    counts = ", ".join(f"{s} {int((ex['source'] == s).sum())}건" for s in sources)
     n_kw = int((ex["source"] == KEYWORD_SOURCE).sum())
     return CheckResult(
         check_id="exclusion", signal="GREEN",

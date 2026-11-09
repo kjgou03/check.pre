@@ -14,8 +14,10 @@ from precheck import data, llm, rules
 from precheck.schemas import CheckResult, Proposal, Report, Signal
 
 SIGNAL_EMOJI = {"RED": "🔴", "YELLOW": "🟡", "GREEN": "🟢", "UNKNOWN": "⚪"}
-CHECK_LABEL = {"exclusion": "배제 테마", "sanctions": "제재", "limit_single": "단일종목 한도",
-               "limit_sector": "섹터 한도", "conflict": "이해상충", "law": "법령"}
+# 기획서 표현. '위반'이 아니라 '위반 가능' — 판정은 사람이 한다.
+SIGNAL_LABEL = {"RED": "위반 가능", "YELLOW": "확인 필요", "GREEN": "적합", "UNKNOWN": "확인 불가"}
+CHECK_LABEL = {"law": "법령", "exclusion": "배제 테마", "sanctions": "제재", "limit_single": "단일종목 한도",
+               "limit_sector": "섹터 한도", "conflict": "이해상충"}
 
 RULE_REF = re.compile(r"\[((?:IG|ACT)-[\w-]+)\]")   # 요약 속 조문 인용 [IG-5-1]
 NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")           # 요약 속 숫자 150 / 1.84 / 10,714,286
@@ -117,6 +119,9 @@ def _summary_prompt(p: Proposal, checks: list[CheckResult], overall: Signal, fee
     return prompt
 
 
+VERIFY_FAIL_NOTE = "※ AI 요약이 근거 검증을 통과하지 못해 코드 생성 요약으로 대체했습니다."
+
+
 def make_summary(p: Proposal, checks: list[CheckResult], overall: Signal) -> str:
     feedback = None
     for _ in range(1 + config.LLM_MAX_RETRIES):
@@ -126,7 +131,10 @@ def make_summary(p: Proposal, checks: list[CheckResult], overall: Signal) -> str
         feedback = validate_summary(text, checks, p)
         if not feedback:
             return text           # 검증 통과한 LLM 요약
-    return template_summary(checks, overall)
+    summary = template_summary(checks, overall)
+    if feedback:                  # LLM 은 답했지만 끝까지 검증 실패 → 대체 사실을 숨기지 않는다
+        summary += " " + VERIFY_FAIL_NOTE
+    return summary
 
 
 # ── 4. 조립 ─────────────────────────────────────────────
@@ -161,7 +169,7 @@ def to_markdown(r: Report) -> str:
     usd = f" (≈ ${p.amount_usd:,.0f})" if p.amount_usd else ""
     ident = ", ".join(x for x in [p.ticker, p.cusip] if x)
     lines = [
-        f"# 투자안 사전 점검 보고서 — {SIGNAL_EMOJI[r.overall]} {r.overall}",
+        f"# 투자안 사전 점검 보고서 — {SIGNAL_EMOJI[r.overall]} {r.overall} ({SIGNAL_LABEL[r.overall]})",
         "",
         "## 1. 투자안",
         "| 항목 | 내용 |", "|---|---|",
@@ -176,7 +184,8 @@ def to_markdown(r: Report) -> str:
     lines += ["", "## 2. 점검 결과", "| 점검 | 신호 | 결과 | 근거 |", "|---|---|---|---|"]
     for c in r.checks:
         refs = ", ".join(_dedupe(e.source_id for e in c.evidence)) or "-"
-        lines.append(f"| {CHECK_LABEL[c.check_id]} | {SIGNAL_EMOJI[c.signal]} {c.signal} | {_cell(c.headline)} | {_cell(refs)} |")
+        lines.append(f"| {CHECK_LABEL[c.check_id]} | {SIGNAL_EMOJI[c.signal]} {c.signal} · {SIGNAL_LABEL[c.signal]} "
+                     f"| {_cell(c.headline)} | {_cell(refs)} |")
 
     lines += ["", "## 3. 요약", r.summary, "", "## 4. 필요한 승인"]
     lines += [f"- {a}" for a in r.required_approvals] or ["- 없음"]

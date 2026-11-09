@@ -6,8 +6,8 @@ import pandas as pd
 import streamlit as st
 
 import config
-from precheck import batch, data, llm, orchestrator, report
-from precheck.report import CHECK_LABEL, SIGNAL_EMOJI
+from precheck import audit, batch, data, impact, llm, orchestrator, report
+from precheck.report import CHECK_LABEL, SIGNAL_EMOJI, SIGNAL_LABEL
 from precheck.schemas import Report
 
 st.set_page_config(page_title="PreCheck", page_icon="🚦", layout="wide")
@@ -23,8 +23,12 @@ with st.sidebar:
         st.markdown(f"`{name}` — **{info['status']}**")
     if any(v["status"] != "REAL" for v in manifest.values()):
         st.warning("샘플·모의 데이터가 포함되어 있습니다. 수치는 동작 확인용입니다.")
+    st.subheader("최근 점검 이력 (감사 로그)")
+    for row in audit.recent(5):
+        st.caption(f"#{row['id']} {row['ts'][:16].replace('T', ' ')} UTC · 모드 {row['mode']} · "
+                   f"{row['company'] or '포트폴리오'} · {row['overall']}")
 
-tab_a, tab_b = st.tabs(["① 사전 점검 (모드 A)", "② 포트폴리오 스크리닝 (모드 B)"])
+tab_a, tab_b, tab_c = st.tabs(["① 사전 점검 (모드 A)", "② 정기 스크리닝 (모드 B)", "③ 규정 변경 영향 (모드 B-2)"])
 
 
 # ── 모드 A ─────────────────────────────────────────────
@@ -38,10 +42,10 @@ def staff_label(sid: str) -> str:
 
 
 def render_report(r: Report) -> None:
-    st.markdown(f"### 종합 신호: {SIGNAL_EMOJI[r.overall]} {r.overall}")
+    st.markdown(f"### 종합 신호: {SIGNAL_EMOJI[r.overall]} {r.overall} ({SIGNAL_LABEL[r.overall]})")
     cols = st.columns(len(r.checks))
     for col, c in zip(cols, r.checks):
-        col.markdown(f"{CHECK_LABEL[c.check_id]}  \n#### {SIGNAL_EMOJI[c.signal]} {c.signal}")
+        col.markdown(f"{CHECK_LABEL[c.check_id]}  \n**{SIGNAL_EMOJI[c.signal]} {SIGNAL_LABEL[c.signal]}**")
 
     st.markdown("#### 점검 결과 (행을 펼치면 근거 원문)")
     for c in r.checks:
@@ -108,7 +112,7 @@ with tab_a:
 
 # ── 모드 B ─────────────────────────────────────────────
 with tab_b:
-    st.write("보유내역 전체를 배제·제재 목록과 대조합니다.")
+    st.write("보유내역 전체를 최신 배제·제재 목록, 단일종목 한도와 다시 대조합니다. (분기마다 / 목록 갱신 시)")
     if st.button("스크리닝 실행", type="primary"):
         with st.spinner("보유 종목 대조 중…"):
             st.session_state["b_df"] = batch.run()
@@ -129,7 +133,7 @@ with tab_b:
         st.markdown("#### 상세 (펼치면 목록 행 원문)")
         for _, row in df.iterrows():
             title = (f"{SIGNAL_EMOJI[row['signal']]} {row['issuer_name']} ({row['ticker']}) — "
-                     f"{row['theme']} · ${row['value_usd']:,.0f}")
+                     f"{row['theme']} · ${row['value_usd']:,.0f} (비중 {row['weight_pct']:.2f}%)")
             with st.expander(title):
                 st.markdown(f"- 매칭: **{row['matched_name'] or '-'}** ({row['list_source']}"
                             + (f", {row['match_score']}점" if pd.notna(row['match_score']) else "") + ")")
@@ -137,6 +141,40 @@ with tab_b:
                     st.markdown(f"- {line}")
         st.download_button("상세 CSV 다운로드", df.to_csv(index=False).encode("utf-8-sig"),
                            file_name="batch_screening.csv", mime="text/csv")
+
+# ── 모드 B-2 ───────────────────────────────────────────
+with tab_c:
+    st.write("새 배제·제재 목록(CSV)이나 공지 문서(.txt/.md)를 넣으면, 보유 종목 중 **새로 걸리는 종목**을 바로 뽑습니다. "
+             "문서는 LLM이 기업명을 추출합니다(키 필요).")
+    up = st.file_uploader("새 목록 / 문서", type=["csv", "txt", "md"])
+    use_example = st.button("예시 파일로 실행 (data/samples/new_list_example.csv — 가상 목록)")
+    source = None
+    if up is not None:
+        source = (up.name, up.getvalue().decode("utf-8"))
+    elif use_example:
+        ex_path = config.SAMPLES_DIR / "new_list_example.csv"
+        source = (ex_path.name, ex_path.read_text(encoding="utf-8"))
+    if source is not None:
+        try:
+            with st.spinner("새 목록 읽고 보유 종목과 대조 중…"):
+                st.session_state["c_result"] = impact.run(impact.parse_new_list(*source))
+        except ValueError as e:
+            st.error(str(e))
+
+    res = st.session_state.get("c_result")
+    if res is not None:
+        s = res["summary"]
+        m1, m2, m3 = st.columns(3)
+        m1.metric("새로 추가된 기업", f"{s['added']}개", help=f"새 목록 {s['new_list']}개 중 기존 목록에 이미 있음 {s['already_listed']}개")
+        m2.metric("🔴 새로 RED가 된 보유 종목", f"{s['newly_red']}건")
+        m3.metric("해당 금액 (원화 환산)", f"{s['newly_red_usd'] * config.FX_KRW_USD / 1e8:,.0f}억 원",
+                  help=f"${s['newly_red_usd']:,} × 환율 {config.FX_KRW_USD:,}원/$")
+        st.markdown("#### 영향받는 보유 종목 (before = 기존 목록 기준 신호)")
+        st.dataframe(res["detail"], hide_index=True, use_container_width=True)
+        with st.expander("새로 추가된 기업 (추출·정리 결과 — 사람이 확인)"):
+            st.dataframe(res["added"], hide_index=True, use_container_width=True)
+        with st.expander("기존 목록에 이미 있던 기업"):
+            st.dataframe(res["already"], hide_index=True, use_container_width=True)
 
 # ── 하단: 데이터 기준일 + 고지문 ─────────────────────────
 st.divider()

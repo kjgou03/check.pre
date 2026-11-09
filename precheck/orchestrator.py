@@ -1,10 +1,11 @@
-"""모드 A — 투자안 1건 사전 점검.
+"""모드 A — 투자안 1건 사전 점검. (기획서 ③ Workflow 의 오케스트레이터)
 
-    입력 ─① intake─▶ Proposal ─┬─③ screening.exclusion ─┐
-                                ├─③ screening.sanctions ─┤
-                                ├─④ limits.single        ├─▶ ⑥ report.build ─▶ Report
-                                ├─④ limits.sector        │
-                                └─⑤ conflicts.check      ┘
+    입력 ─① intake─▶ Proposal ─┬─② rules.check (법령)    ─┐
+                                ├─③ screening.exclusion    ─┤
+                                ├─③ screening.sanctions    ─┤  ← ②~⑤ 병렬 실행
+                                ├─④ limits.single          ├─▶ ⑥ report.build ─▶ Report ─▶ 감사 로그
+                                ├─④ limits.sector          │
+                                └─⑤ conflicts.check        ┘
 
 실행 예)
     python -m precheck.orchestrator --company "Altria Group" --amount 15000000000 --staff S002
@@ -13,9 +14,21 @@
 """
 import argparse
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
-from precheck import conflicts, intake, limits, report, screening
-from precheck.schemas import CheckResult, Proposal, Report
+from precheck import audit, conflicts, intake, limits, report, rules, screening
+from precheck.report import CHECK_LABEL
+from precheck.schemas import CheckResult, Evidence, Proposal, Report
+
+# 서로 독립인 점검들. 순서 = 보고서 표 순서
+CHECKS = [
+    ("law", rules.check),
+    ("exclusion", screening.exclusion),
+    ("sanctions", screening.sanctions),
+    ("limit_single", limits.single),
+    ("limit_sector", limits.sector),
+    ("conflict", conflicts.check),
+]
 
 QUESTION_FOR = {
     "company_name": "투자 대상 기업명을 알려주세요. (LLM 키가 없으면 영문으로. 예: Altria Group)",
@@ -24,10 +37,29 @@ QUESTION_FOR = {
 }
 
 
+def _safe(check_id: str, fn, p: Proposal) -> CheckResult:
+    """점검 하나가 실패해도 보고서는 만든다. 단, 조용히 '문제 없음'으로 넘기지 않는다 (침묵 실패 금지).
+
+    UNKNOWN 이 아니라 YELLOW 로 올리는 이유: UNKNOWN 은 GREEN 과 섞이면 종합이 GREEN 이 될 수 있다.
+    점검을 못 했는데 종합 '적합'이 나오는 것이 가장 위험한 실패이므로, 사람 확인(YELLOW)으로 올린다.
+    """
+    try:
+        return fn(p)
+    except Exception as e:  # noqa: BLE001 — 어떤 오류든 보고서에 드러내는 것이 목적
+        print(f"[precheck] {check_id} 점검 실패: {e!r}", file=sys.stderr)
+        return CheckResult(
+            check_id=check_id, signal="YELLOW",
+            headline=f"확인 불가 — 점검 중 오류({type(e).__name__}), 사람 확인 필요",
+            evidence=[Evidence(source_type="db", source_id="system_error", text=str(e)[:300])],
+            questions=[f"{CHECK_LABEL[check_id]} 점검을 수행하지 못했습니다. 데이터·설정 확인 후 재점검 필요"],
+        )
+
+
 def run_checks(p: Proposal) -> list[CheckResult]:
-    # (선택) 법령 점검 'law' 는 kic_act_sample.json 이 채워지면 rules.get_by_category("law") 로 추가
-    return [screening.exclusion(p), screening.sanctions(p),
-            limits.single(p), limits.sector(p), conflicts.check(p)]
+    """6개 점검을 병렬로 실행 (서로 독립이라 순서 무관). 결과는 CHECKS 순서대로."""
+    with ThreadPoolExecutor(max_workers=len(CHECKS)) as pool:
+        futures = [pool.submit(_safe, check_id, fn, p) for check_id, fn in CHECKS]
+        return [f.result() for f in futures]
 
 
 def run(text: str | None = None, *, company: str | None = None, amount_krw: float | None = None,
@@ -36,7 +68,10 @@ def run(text: str | None = None, *, company: str | None = None, amount_krw: floa
     p = intake.parse(text) if text else intake.from_fields(company, amount_krw, staff_id, memo)
     if p.missing_fields:
         return [QUESTION_FOR[f] for f in p.missing_fields]
-    return report.build(p, run_checks(p))
+    r = report.build(p, run_checks(p))
+    audit.log("A", r.model_dump(mode="json"), company=p.company_name, staff_id=p.staff_id,
+              overall=r.overall, sources=r.sources_used)
+    return r
 
 
 def _amount(s: str) -> float:

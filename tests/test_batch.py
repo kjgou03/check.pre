@@ -21,3 +21,15 @@ def test_summary_totals_match_detail():
     s = batch.summarize(df)
     assert s["count"].sum() == len(df)
     assert s["value_usd"].sum() == df["value_usd"].sum()
+
+
+def test_batch_also_checks_single_issuer_limit(monkeypatch):
+    # 기획서: 모드 B 는 보유내역 전체에 ③(배제·제재)과 ④(한도)를 돌린다.
+    # 모의 지침 한도를 1.5% 로 낮추면 비중 큰 종목들이 한도 점검에 걸려야 한다.
+    from precheck import rules
+    real = rules.param
+    monkeypatch.setattr(rules, "param", lambda rid, key: 1.5 if (rid, key) == ("IG-3-1", "max_pct") else real(rid, key))
+    df = batch.run(save=False)
+    over = df[df["limit_single"] == "RED"]
+    assert "AAPL" in set(over["ticker"]) and (over["weight_pct"] > 1.5).all()
+    assert (df.loc[df["ticker"] == "AAPL", "theme"] == "limit").all()
