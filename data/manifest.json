@@ -1,0 +1,9 @@
+{
+  "_설명": "status — REAL: 공개 출처 실데이터 / SAMPLE: 실데이터 자리에 넣어 둔 샘플(발표 전 교체 필수) / MOCK: 원래 비공개라 일부러 만든 가상 데이터 / EMPTY: 아직 비어 있음",
+  "holdings.csv": {"status": "SAMPLE", "source": "SEC EDGAR Form 13F-HR (KIC) 형식을 흉내 낸 모의 보유내역 — 금액·주식 수는 가상", "as_of": "2025-06-30"},
+  "exclusion_list.csv": {"status": "SAMPLE", "source": "NBIM 배제목록·Urgewald GCEL 2025 일부 기업명 수기 입력 + KIC 배제 테마 키워드", "as_of": null},
+  "sanctions.csv": {"status": "SAMPLE", "source": "OFAC SDN 등재 법인 10곳 수기 발췌 — 공식 sdn.csv로 교체 필요", "as_of": null},
+  "staff_holdings.csv": {"status": "MOCK", "source": "가상 담당자 3명의 가상 보유 종목", "as_of": "2026-10-01"},
+  "rules/internal_guideline.json": {"status": "MOCK", "source": "팀 작성 모의 내부 투자지침 (NBIM·국민연금 공개 지침 참고)", "as_of": null},
+  "rules/kic_act_sample.json": {"status": "EMPTY", "source": "law.go.kr 한국투자공사법 조문 — 아직 미입력", "as_of": null}
+}

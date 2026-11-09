@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+# 루트의 config.py 를 import 할 수 있도록 루트를 경로에 추가
+pythonpath = ["."]
+testpaths = ["tests"]

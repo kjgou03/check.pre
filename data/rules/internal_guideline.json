@@ -1,0 +1,10 @@
+[
+  {"rule_id": "IG-3-1", "title": "단일 종목 집중 한도", "text": "단일 발행사에 대한 주식 투자 평가액은 전체 주식 포트폴리오 평가액의 3%를 초과할 수 없다.", "category": "limit", "param": {"type": "single_issuer", "max_pct": 3.0}},
+  {"rule_id": "IG-3-2", "title": "단일 섹터 집중 한도", "text": "단일 GICS 섹터 비중은 벤치마크 대비 ±5%p를 초과할 수 없다.", "category": "limit", "param": {"type": "sector_deviation", "max_pp": 5.0}},
+  {"rule_id": "IG-3-3", "title": "한도 근접 보고", "text": "한도의 80% 이상에 도달한 경우 투자 실행 전 리스크관리부에 보고한다.", "category": "limit", "param": {"type": "warn_ratio", "ratio": 0.8}},
+  {"rule_id": "IG-5-1", "title": "투자배제 테마", "text": "담배, 발전용 석탄(매출 30% 이상), 대마, 논란 무기, 아동노동 관련 기업에는 신규 투자하지 아니하며, 기존 보유분은 책임투자위원회 심의를 거쳐 처분 계획을 수립한다.", "category": "exclusion", "param": {"themes": ["tobacco", "coal", "cannabis", "controversial_weapons", "child_labor"]}},
+  {"rule_id": "IG-5-2", "title": "외부 배제목록 참조", "text": "노르웨이 국부펀드(NBIM) 배제목록 및 Urgewald Global Coal Exit List에 포함된 기업은 투자 전 책임투자위원회의 사전 검토를 받는다.", "category": "exclusion", "param": {"lists": ["NBIM", "Urgewald_GCEL_2025"]}},
+  {"rule_id": "IG-6-1", "title": "제재 대상 투자 금지", "text": "미국 OFAC, UN, EU 제재 대상 법인 및 그 50% 이상 자회사에는 투자할 수 없다.", "category": "sanctions", "param": {}},
+  {"rule_id": "IG-7-1", "title": "임직원 이해상충", "text": "투자 담당자는 본인 또는 배우자가 보유한 종목에 대한 투자 검토·보고서 작성에 참여할 수 없으며, 해당 시 준법감시부에 사전 신고한다.", "category": "conflict", "param": {}},
+  {"rule_id": "IG-8-1", "title": "승인 절차", "text": "배제 테마 또는 외부 배제목록 해당 시 책임투자위원회 사전 심의, 한도 초과 시 리스크관리위원회 승인, 이해상충 시 준법감시부 신고 후 담당자 교체를 거쳐야 한다.", "category": "approval", "param": {}}
+]
